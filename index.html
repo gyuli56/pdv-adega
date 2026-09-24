@@ -169,9 +169,37 @@ async function refreshAll(){try{await loadProducts();renderProducts();fillStock(
 function renderProducts(){
  const q=($('productSearch').value||'').toLowerCase();
  $('productTable').innerHTML=products.filter(p=>(p.name+' '+(p.barcode||'')).toLowerCase().includes(q)).map(p=>
- `<tr><td>${esc(p.name)}</td><td>${esc(p.barcode||'')}</td><td>${money(p.cost_price)}</td><td>${money(p.sale_price)}</td><td>${money(p.sale_price-p.cost_price)}</td><td>${p.stock}</td><td>${p.min_stock||0}</td><td><button class="gray" onclick="editProduct('${p.id}')">Editar</button></td></tr>`).join('');
+ `<tr><td>${esc(p.name)}</td><td>${esc(p.barcode||'')}</td><td>${money(p.cost_price)}</td><td>${money(p.sale_price)}</td><td>${money(p.sale_price-p.cost_price)}</td><td>${p.stock}</td><td>${p.min_stock||0}</td><td><div class="actions"><button class="gray" onclick="editProduct('${p.id}')">Editar</button><button class="red" onclick="deleteProduct('${p.id}')">Excluir</button></div></td></tr>`).join('');
 }
 $('productSearch').oninput=renderProducts;
+
+window.deleteProduct=async id=>{
+ const p=products.find(x=>x.id===id);
+ if(!p)return;
+ if(cart.some(x=>x.id===id))return showMsg('globalMsg','Retire o produto do carrinho antes de excluí-lo.',true);
+ const {count,error:checkError}=await db.from('sale_items').select('id',{count:'exact',head:true}).eq('product_id',id);
+ if(checkError)return showMsg('globalMsg','Não foi possível verificar o histórico do produto: '+checkError.message,true);
+ const sold=(count||0)>0;
+ const message=sold
+  ? `O produto "${p.name}" já possui ${count} registro(s) de venda. Ele será apenas desativado e continuará no histórico de vendas. Deseja continuar?`
+  : `O produto "${p.name}" nunca foi vendido. Ele será excluído definitivamente, junto com suas movimentações de estoque. Deseja continuar?`;
+ if(!confirm(message))return;
+ try{
+  if(sold){
+   const {error}=await db.from('products').update({active:false,updated_at:new Date().toISOString()}).eq('id',id);
+   if(error)throw error;
+   showMsg('productMsg','Produto desativado. O histórico de vendas foi preservado.');
+  }else{
+   const {error:movError}=await db.from('stock_movements').delete().eq('product_id',id);
+   if(movError)throw movError;
+   const {error}=await db.from('products').delete().eq('id',id);
+   if(error)throw error;
+   showMsg('productMsg','Produto excluído definitivamente.');
+  }
+  if($('prodId').value===id)$('clearProduct').click();
+  await refreshAll();
+ }catch(e){showMsg('productMsg','Não foi possível excluir/desativar: '+(e.message||String(e)),true)}
+};
 function fillStock(){$('stockProduct').innerHTML=products.map(p=>`<option value="${p.id}">${esc(p.name)} — estoque ${p.stock}</option>`).join('')}
 window.editProduct=id=>{let p=products.find(x=>x.id===id);if(!p)return;$('prodId').value=p.id;$('barcode').value=p.barcode||'';$('prodName').value=p.name;$('cost').value=p.cost_price;$('price').value=p.sale_price;$('initialStock').value=0;$('minStock').value=p.min_stock||0;$('prodTitle').textContent='Editar produto';document.querySelector('[data-tab="produtos"]').click();scrollTo(0,0)};
 $('clearProduct').onclick=()=>{['prodId','barcode','prodName','cost','price'].forEach(x=>$(x).value='');$('initialStock').value=0;$('minStock').value=0;$('prodTitle').textContent='Cadastrar produto'};
