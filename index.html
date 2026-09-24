@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <meta name="theme-color" content="#111827"><link rel="manifest" href="manifest.webmanifest">
-<title>PDV Completo</title>
+<title>PDV Completo V4.1</title>
 <style>
 *{box-sizing:border-box}body{margin:0;font-family:Arial,sans-serif;background:#f3f4f6;color:#111827}
 header{background:#111827;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;gap:8px;position:sticky;top:0;z-index:20}
@@ -211,8 +211,13 @@ $('saveProduct').onclick=async()=>{
    const {error}=await db.from('products').update({name,barcode:barcode||null,cost_price:cost,sale_price:price,min_stock:min,updated_at:new Date().toISOString()}).eq('id',id);if(error)throw error;
    if(stock>0){const {error:e}=await db.rpc('add_stock',{p_product_id:id,p_quantity:stock,p_reason:'Entrada na edição'});if(e)throw e}
   }else{
-   const {data,error}=await db.from('products').insert({name,barcode:barcode||null,cost_price:cost,sale_price:price,stock,min_stock:min}).select().single();if(error)throw error;
-   if(stock>0){const {error:e}=await db.rpc('add_stock',{p_product_id:data.id,p_quantity:stock,p_reason:'Estoque inicial'});if(e)throw e}
+   // Estoque inicial: grava a quantidade diretamente no produto e registra a movimentação.
+   // Não chama add_stock aqui para evitar qualquer duplicação do estoque inicial.
+   const {data,error}=await db.from('products').insert({name,barcode:barcode||null,cost_price:cost,sale_price:price,stock:stock,min_stock:min}).select().single();if(error)throw error;
+   if(stock>0){
+    const {error:e}=await db.from('stock_movements').insert({product_id:data.id,type:'entrada',quantity:stock,reason:'Estoque inicial',user_id:(await db.auth.getUser()).data.user?.id||null});
+    if(e)throw e;
+   }
   }
   showMsg('productMsg','Produto salvo!');$('clearProduct').click();await refreshAll()
  }catch(e){showMsg('productMsg',e.message,true)}
